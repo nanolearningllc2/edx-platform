@@ -444,23 +444,15 @@ class CourseOverviewAccessTestCase(ModuleStoreTestCase):
         last_week = today - datetime.timedelta(days=7)
         next_week = today + datetime.timedelta(days=7)
 
-        create_course = lambda i, **kwargs: CourseFactory.create(
-            org="TestX",
-            course="TEST-{}".format(100 + i),
-            run="Run1",
-            **kwargs
-        )
-        self.course_default = create_course(1)
-        self.course_started = create_course(2, start=last_week)
-        self.course_not_started = create_course(3, start=next_week, days_early_for_beta=10)
-        self.course_staff_only = create_course(4, visible_to_staff_only=True)
-        self.course_mobile_available = create_course(5, mobile_available=True)
-        self.course_with_pre_requisite = create_course(
-            6,
+        self.course_default = CourseFactory.create()
+        self.course_started = CourseFactory.create(start=last_week)
+        self.course_not_started = CourseFactory.create(start=next_week, days_early_for_beta=10)
+        self.course_staff_only = CourseFactory.create(visible_to_staff_only=True)
+        self.course_mobile_available = CourseFactory.create(mobile_available=True)
+        self.course_with_pre_requisite = CourseFactory.create(
             pre_requisite_courses=[str(self.course_started.id)]
         )
-        self.course_with_pre_requisites = create_course(
-            7,
+        self.course_with_pre_requisites = CourseFactory.create(
             pre_requisite_courses=[str(self.course_started.id), str(self.course_not_started.id)]
         )
 
@@ -478,7 +470,7 @@ class CourseOverviewAccessTestCase(ModuleStoreTestCase):
     ))
 
     LOAD_MOBILE_TEST_DATA = list(itertools.product(
-        ['user_normal'],
+        ['user_normal', 'user_staff'],
         ['load_mobile'],
         ['course_default', 'course_mobile_available'],
     ))
@@ -503,7 +495,7 @@ class CourseOverviewAccessTestCase(ModuleStoreTestCase):
             user_attr_name (str): the name of the attribute on self that is the
                 User to test with.
             action (str): action to test with.
-                See COURSE_OVERVIEW_SUPPORTED_ACCESS_TYPES for valid values.
+                See COURSE_OVERVIEW_SUPPORTED_ACTIONS for valid values.
             course_attr_name (str): the name of the attribute on self that is
                 the CourseDescriptor to test with.
         """

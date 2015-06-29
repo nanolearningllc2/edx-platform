@@ -9,6 +9,7 @@ class Migration(SchemaMigration):
 
     def forwards(self, orm):
         # Adding field 'CourseOverview.days_early_for_beta'
+        db.clear_table('course_overviews_courseoverview')
         db.add_column('course_overviews_courseoverview', 'days_early_for_beta',
                       self.gf('django.db.models.fields.FloatField')(null=True),
                       keep_default=False)

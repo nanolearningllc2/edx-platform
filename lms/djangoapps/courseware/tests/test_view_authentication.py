@@ -411,8 +411,8 @@ class TestBetatesterAccess(ModuleStoreTestCase, CourseAccessTestMixin):
         Check that beta-test access works for courses.
         """
         self.assertFalse(self.course.has_started())
-        self.assertCannotAccess(self.normal_student, 'load', self.course)
-        self.assertCanAccess(self.beta_tester, 'load', self.course)
+        self.assertCannotAccessCourse(self.normal_student, 'load', self.course)
+        self.assertCanAccessCourse(self.beta_tester, 'load', self.course)
 
     @patch.dict('courseware.access.settings.FEATURES', {'DISABLE_START_DATES': False})
     def test_content_beta_period(self):

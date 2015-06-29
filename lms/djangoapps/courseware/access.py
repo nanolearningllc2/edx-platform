@@ -139,8 +139,10 @@ def _can_access_descriptor_with_start_date(user, descriptor, course_key):  # pyl
 
     If there is no start date specified, grant access.
     Else, check if we're past the start date.
-    NOTE: We do NOT check whether the user is staff... it assumed that staff
-        access is checked at a higher level.
+
+    Note:
+        We do NOT check whether the user is staff or if the descriptor
+        is detached... it is assumed both of these are checked by the caller.
 
     Arguments:
         user (User): the user whose descriptor access we are checking.
@@ -149,8 +151,7 @@ def _can_access_descriptor_with_start_date(user, descriptor, course_key):  # pyl
         .days_early_for_beta
     """
     start_dates_disabled = settings.FEATURES['DISABLE_START_DATES']
-    masquerading = is_masquerading_as_student(user, course_key)
-    if start_dates_disabled and not masquerading:
+    if start_dates_disabled and not is_masquerading_as_student(user, course_key):
         return True
     else:
         now = datetime.now(UTC())
@@ -180,13 +181,11 @@ def _can_view_courseware_with_prerequisites(user, course):  # pylint: disable=in
         represents a course and has the attributes .location and .id.
     """
     return (
-        _has_staff_access_to_descriptor(user, course, course.id)
+        not settings.FEATURES['ENABLE_PREREQUISITE_COURSES']
+        or _has_staff_access_to_descriptor(user, course, course.id)
+        or not course.pre_requisite_courses
         or user.is_anonymous()
-        or not (
-            settings.FEATURES['ENABLE_PREREQUISITE_COURSES']
-            and course.pre_requisite_courses
-            and get_pre_requisite_courses_not_completed(user, [course.id])
-        )
+        or not get_pre_requisite_courses_not_completed(user, [course.id])
     )
 
 
@@ -196,7 +195,7 @@ def _can_load_course_on_mobile(user, course):
 
     This function only checks mobile-specific access restrictions. Other access
     restrictions such as start date and the .visible_to_staff_only flag must
-    be checked in *addition* to the return value of this function.
+    be checked by callers in *addition* to the return value of this function.
 
     Arguments:
         user (User): the user whose course access  we are checking.
@@ -361,8 +360,8 @@ def _has_access_course_desc(user, action, course):
 
 COURSE_OVERVIEW_SUPPORTED_ACTIONS = [  # pylint: disable=invalid-name
     'load',
-    'load_mobile'
-    'view_courseware_with_prerequisites'
+    'load_mobile',
+    'view_courseware_with_prerequisites',
 ]
 
 
@@ -373,7 +372,7 @@ def _has_access_course_overview(user, action, course_overview):
     Arguments:
         user (User): the user whose course access we are checking.
         action (str): the action the user is trying to perform.
-            See COURSE_OVERVIEW_SUPPORTED_ACCESS_TYPES for valid values.
+            See COURSE_OVERVIEW_SUPPORTED_ACTIONS for valid values.
         course_overview (CourseOverview): overview of the course in question.
     """
     def can_load():
@@ -383,12 +382,9 @@ def _has_access_course_overview(user, action, course_overview):
         NOTE: this is not checking whether user is actually enrolled in the course.
         """
         return (
-            _has_staff_access_to_descriptor(user, course_overview, course_overview.id)
-            or (
-                not course_overview.visible_to_staff_only
-                and _can_access_descriptor_with_start_date(user, course_overview, course_overview.id)
-            )
-        )
+            not course_overview.visible_to_staff_only
+            and _can_access_descriptor_with_start_date(user, course_overview, course_overview.id)
+        ) or _has_staff_access_to_descriptor(user, course_overview, course_overview.id)
 
     checkers = {
         'load': can_load,
@@ -396,6 +392,13 @@ def _has_access_course_overview(user, action, course_overview):
         'view_courseware_with_prerequisites':
             lambda: _can_view_courseware_with_prerequisites(user, course_overview),
     }
+
+    # Make sure checkers and COURSE_OVERVIEW_SUPPORTED_ACTIONS stay in sync.
+    actions = checkers.keys()
+    assert (
+        all(check_action in COURSE_OVERVIEW_SUPPORTED_ACTIONS for check_action in actions) and
+        len(COURSE_OVERVIEW_SUPPORTED_ACTIONS) == len(actions)
+    ), "COURSE_OVERVIEW_SUPPORTED_ACTIONS and _has_access_course_overview.checkers shouldn't differ"
 
     return _dispatch(checkers, action, user, course_overview)
 
@@ -505,16 +508,13 @@ def _has_access_descriptor(user, action, descriptor, course_key=None):
         don't have to hit the enrollments table on every module load.
         """
         return (
-            _has_staff_access_to_descriptor(user, descriptor, course_key)
-            or (
-                not descriptor.visible_to_staff_only
-                and _has_group_access(descriptor, user, course_key)
-                and (
-                    'detached' in descriptor._class_tags  # pylint: disable=protected-access
-                    or _can_access_descriptor_with_start_date(user, descriptor, course_key)
-                )
+            not descriptor.visible_to_staff_only
+            and _has_group_access(descriptor, user, course_key)
+            and (
+                'detached' in descriptor._class_tags  # pylint: disable=protected-access
+                or _can_access_descriptor_with_start_date(user, descriptor, course_key)
             )
-        )
+        ) or _has_staff_access_to_descriptor(user, descriptor, course_key)
 
     checkers = {
         'load': can_load,
@@ -775,4 +775,4 @@ def in_preview_mode():
     Returns whether the user is in preview mode or not.
     """
     hostname = get_current_request_hostname()
-    return hostname and settings.PREVIEW_DOMAIN in hostname.split('.')
+    return bool(hostname and settings.PREVIEW_DOMAIN in hostname.split('.'))

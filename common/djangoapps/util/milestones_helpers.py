@@ -90,7 +90,7 @@ def set_prerequisite_courses(course_key, prerequisite_course_keys):
 def get_pre_requisite_courses_not_completed(user, enrolled_courses):  # pylint: disable=invalid-name
     """
     Makes a dict mapping courses to their incomplete requirements using the
-    fulfilment API of the milestones app.
+    fulfillment API of the milestones app.
 
     Arguments:
         user (User): the user for whom we are checking prerequisites.
@@ -112,8 +112,8 @@ def get_pre_requisite_courses_not_completed(user, enrolled_courses):  # pylint: 
 
     for course_key in enrolled_courses:
         required_courses = []
-        fulfilment_paths = milestones_api.get_course_milestones_fulfillment_paths(course_key, {'id': user.id})
-        for __, milestone_value in fulfilment_paths.items():
+        fulfillment_paths = milestones_api.get_course_milestones_fulfillment_paths(course_key, {'id': user.id})
+        for __, milestone_value in fulfillment_paths.items():
             for key, value in milestone_value.items():
                 if key == 'courses' and value:
                     for required_course in value:
@@ -123,7 +123,7 @@ def get_pre_requisite_courses_not_completed(user, enrolled_courses):  # pylint: 
                             'key': required_course_key,
                             'display': get_course_display_string(required_course_overview)
                         })
-        # If there are required courses, add them to the to result dict.
+        # If there are required courses, add them to the result dict.
         if required_courses:
             pre_requisite_courses[course_key] = {'courses': required_courses}
 

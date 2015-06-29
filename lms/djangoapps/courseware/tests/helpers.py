@@ -147,7 +147,7 @@ class CourseAccessTestMixin(TestCase):
     If relevant, also checks access for courses' corresponding CourseOverviews.
     """
 
-    def assertCanAccess(self, user, action, course):
+    def assertCanAccessCourse(self, user, action, course):
         """
         Assert that a user has access to the given action for a given course.
 
@@ -164,7 +164,7 @@ class CourseAccessTestMixin(TestCase):
         if action in COURSE_OVERVIEW_SUPPORTED_ACTIONS:
             self.assertTrue(has_access(user, action, CourseOverview.get_from_id(course.id)))
 
-    def assertCannotAccess(self, user, action, course):
+    def assertCannotAccessCourse(self, user, action, course):
         """
         Assert that a user lacks access to the given action the given course.
 
