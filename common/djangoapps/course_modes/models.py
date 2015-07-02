@@ -308,7 +308,7 @@ class CourseMode(models.Model):
         """
         modes = cls.modes_for_course(course_id)
         for mode in modes:
-            if (mode.currency == currency) and (mode.slug == 'verified'):
+            if (mode.currency.upper() == currency.upper()) and (mode.slug == 'verified'):
                 return mode.min_price
         return 0
 
@@ -490,7 +490,7 @@ class CourseMode(models.Model):
         If there is no mode found, will return the price of DEFAULT_MODE, which is 0
         """
         modes = cls.modes_for_course(course_id)
-        return min(mode.min_price for mode in modes if mode.currency == currency)
+        return min(mode.min_price for mode in modes if mode.currency.upper() == currency.upper())
 
     @classmethod
     def enrollment_mode_display(cls, mode, verification_status):
