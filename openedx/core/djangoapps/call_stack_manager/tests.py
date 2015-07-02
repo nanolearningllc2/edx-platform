@@ -225,3 +225,4 @@ class TestingCallStackManager(TestCase):
         """
         everything = donottrack_check_with_return()
         self.assertEqual(everything, 42)
+        self.assertEqual(len(log_capt.call_args_list), 0)
