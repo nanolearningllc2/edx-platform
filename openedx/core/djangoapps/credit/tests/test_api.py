@@ -14,6 +14,7 @@ from django.conf import settings
 from opaque_keys.edx.keys import CourseKey
 
 from util.date_utils import from_timestamp
+from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from openedx.core.djangoapps.credit import api
 from openedx.core.djangoapps.credit.exceptions import (
     InvalidCreditRequirements,
@@ -759,7 +760,7 @@ class CreditMessagesTests(ModuleStoreTestCase, CreditApiTestBase):
         status.save()
 
         with self.assertNumQueries(2):
-            enrollment_dict = {unicode(self.course.id): self.course}
+            enrollment_dict = {unicode(self.course.id): CourseOverview.get_from_id(self.course.id)}
             _create_credit_availability_message(
                 enrollment_dict, self.student
             )

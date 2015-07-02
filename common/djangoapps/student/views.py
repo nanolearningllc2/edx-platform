@@ -4,7 +4,6 @@ Student Views
 import datetime
 import logging
 import uuid
-import time
 import json
 import warnings
 from datetime import timedelta
@@ -184,15 +183,22 @@ def process_survey_link(survey_link, user):
 def cert_info(user, course_overview, course_mode):
     """
     Get the certificate info needed to render the dashboard section for the given
-    student and course.  Returns a dictionary with keys:
+    student and course.
 
-    'status': one of 'generating', 'ready', 'notpassing', 'processing', 'restricted'
-    'show_download_url': bool
-    'download_url': url, only present if show_download_url is True
-    'show_disabled_download_button': bool -- true if state is 'generating'
-    'show_survey_button': bool
-    'survey_url': url, only if show_survey_button is True
-    'grade': if status is not 'processing'
+    Arguments:
+        user (User): A user.
+        course_overview (CourseOverview): A course.
+        course_mode (str): The enrollment mode (honor, verified, audit, etc.)
+
+    Returns:
+        dict: A dictionary with keys:
+            'status': one of 'generating', 'ready', 'notpassing', 'processing', 'restricted'
+            'show_download_url': bool
+            'download_url': url, only present if show_download_url is True
+            'show_disabled_download_button': bool -- true if state is 'generating'
+            'show_survey_button': bool
+            'survey_url': url, only if show_survey_button is True
+            'grade': if status is not 'processing'
     """
     if not course_overview.may_certify():
         return {}
@@ -227,19 +233,17 @@ def reverification_info(statuses):
     return reverifications
 
 
-def get_course_enrollments(user, course_org_filter, org_filter_out_set):
+def get_course_enrollments(user, org_to_include, orgs_to_exclude):
     """
     Given a user, return a filtered set of his or her course enrollments.
 
     Arguments:
         user (User): the user in question.
-        course_org_filter (str): if not None, ONLY courses of this org will
-            be returned. For use in Microsites.
-        org_filter_out_set (list[str]): if course_org_filter is None, then any
-            course whose org is in this list will NOT be returned.
-    Notes:
-        Out of course_org_filter and org_filter_out_set, exactly one should
-        be non-None.
+        org_to_include (str): for use in Microsites. If not None, ONLY courses
+            of this org will be returned.
+        orgs_to_exclude (list[str]): If org_to_include is not None, this
+            argument is ignored. Else, courses of this org will be excluded.
+
     Returns:
         generator[CourseEnrollment]: a sequence of enrollments to be displayed
         on the user's dashboard.
@@ -258,12 +262,12 @@ def get_course_enrollments(user, course_org_filter, org_filter_out_set):
 
         # If we are in a Microsite, then filter out anything that is not
         # attributed (by ORG) to that Microsite.
-        if course_org_filter and course_overview.location.org != course_org_filter:
+        if org_to_include and course_overview.location.org != org_to_include:
             continue
 
         # Conversely, if we are not in a Microsite, then filter out any enrollments
         # with courses attributed (by ORG) to Microsites.
-        elif course_overview.location.org in org_filter_out_set:
+        elif course_overview.location.org in orgs_to_exclude:
             continue
 
         # Else, include the enrollment.
@@ -274,6 +278,11 @@ def get_course_enrollments(user, course_org_filter, org_filter_out_set):
 def _cert_info(user, course_overview, cert_status, course_mode):  # pylint: disable=unused-argument
     """
     Implements the logic for cert_info -- split out for testing.
+
+    Arguments:
+        user (User): A user.
+        course_overview (CourseOverview): A course.
+        course_mode (str): The enrollment mode (honor, verified, audit, etc.)
     """
     # simplify the status for the template using this lookup table
     template_state = {
@@ -541,11 +550,11 @@ def dashboard(request):
         course_enrollments, course_modes_by_course
     )
 
-    enrolled_course_names_dict = {
-        unicode(enrollment.course_id): enrollment.course_overview.display_name
+    enrolled_course_overviews_dict = {  # pylint: disable=invalid-name
+        unicode(enrollment.course_id): enrollment.course_overview
         for enrollment in course_enrollments
     }
-    credit_messages = _create_credit_availability_message(enrolled_course_names_dict, user)
+    credit_messages = _create_credit_availability_message(enrolled_course_overviews_dict, user)
 
     course_optouts = Optout.objects.filter(user=user).values_list('course_id', flat=True)
 
@@ -734,7 +743,7 @@ def _create_recent_enrollment_message(course_enrollments, course_modes):  # pyli
         )
 
 
-def _create_credit_availability_message(enrolled_course_names_dict, user):  # pylint: disable=invalid-name
+def _create_credit_availability_message(enrolled_course_overviews_dict, user):  # pylint: disable=invalid-name
     """
     Builds a dict of credit availability for courses.
 
@@ -742,8 +751,8 @@ def _create_credit_availability_message(enrolled_course_names_dict, user):  # py
     from the credit provider yet.
 
     Args:
-        enrolled_course_names_dict (dict[CourseKey: str]): Mapping from course
-            keys to display names for a user's enrolled courses.
+        enrolled_course_names_dict (dict[CourseKey: CourseOverview]): Mapping
+            from course keys to course overviews for a user's enrolled courses.
         user (User): User object.
 
     Returns:
@@ -765,7 +774,7 @@ def _create_credit_availability_message(enrolled_course_names_dict, user):  # py
                 eligibility_messages[course_id] = {
                     "user_id": user.id,
                     "course_id": course_id,
-                    "course_name": enrolled_course_names_dict[course_id],
+                    "course_name": enrolled_course_overviews_dict[course_id].display_name,
                     "providers": eligibility["providers"],
                     "status": eligibility["status"],
                     "provider": eligibility.get("provider"),

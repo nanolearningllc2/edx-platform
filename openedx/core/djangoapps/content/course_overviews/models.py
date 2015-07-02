@@ -139,8 +139,11 @@ class CourseOverview(django.db.models.Model):
                     course_overview = CourseOverview._create_from_course(course)
                     course_overview.save()
                 elif course is not None:
-                    error_string = course.error_msg if isinstance(course, ErrorDescriptor) else str(course)
-                    raise IOError("Error while loading course from module store: " + error_string)
+                    raise IOError(
+                        "Error while loading course {} from module store: {}",
+                        course_id,
+                        course.error_msg if isinstance(course, ErrorDescriptor) else unicode(course)
+                    )
                 else:
                     raise CourseOverview.DoesNotExist()
         return course_overview
