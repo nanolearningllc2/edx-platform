@@ -1,20 +1,30 @@
 """
 Tests for signal handling in commerce djangoapp.
 """
+import base64
+import json
+from urlparse import urljoin
+
+import ddt
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
 from django.test.utils import override_settings
-
-from course_modes.models import CourseMode
-import ddt
+import httpretty
 import mock
+
 from opaque_keys.edx.keys import CourseKey
+
 from student.models import UNENROLL_DONE
 from student.tests.factories import UserFactory, CourseEnrollmentFactory
-
-from commerce.signals import refund_seat, send_refund_notification
-from commerce.tests import TEST_PUBLIC_URL_ROOT, TEST_API_URL, TEST_API_SIGNING_KEY
+from commerce.signals import (refund_seat, send_refund_notification, generate_refund_notification_body,
+                              create_zendesk_ticket)
+from commerce.tests import TEST_PUBLIC_URL_ROOT, TEST_API_URL, TEST_API_SIGNING_KEY, JSON
 from commerce.tests.mocks import mock_create_refund
+from course_modes.models import CourseMode
+
+ZENDESK_URL = 'http://zendesk.example.com/'
+ZENDESK_USER = 'test@example.com'
+ZENDESK_API_KEY = 'abc123'
 
 
 @ddt.ddt
@@ -197,40 +207,60 @@ class TestRefundSignal(TestCase):
         with self.assertRaises(NotImplementedError):
             send_refund_notification(self.course_enrollment, [1, 2, 3])
 
-    @override_settings(PAYMENT_SUPPORT_EMAIL='payment@example.com')
-    @mock.patch('commerce.signals.EmailMultiAlternatives')
-    def test_notification_content(self, mock_email_class):
-        """
-        Ensure the email sender, recipient, subject, content type, and content
-        are all correct.
-        """
-        # mock_email_class is the email message class/constructor.
-        # mock_message is the instance returned by the constructor.
-        # we need to make assertions regarding both.
-        mock_message = mock.MagicMock()
-        mock_email_class.return_value = mock_message
+    def test_send_refund_notification(self):
+        """ Verify the support team is notified of the refund request. """
 
-        refund_ids = [1, 2, 3]
-        send_refund_notification(self.course_enrollment, refund_ids)
+        with mock.patch('commerce.signals.create_zendesk_ticket') as mock_zendesk:
+            refund_ids = [1, 2, 3]
+            send_refund_notification(self.course_enrollment, refund_ids)
+            body = generate_refund_notification_body(self.student, refund_ids)
+            mock_zendesk.assert_called_with(self.student.profile.name, self.student.email,
+                                            "[Refund] User-Requested Refund", body, ['refund'])
 
-        # check headers and text content
-        self.assertEqual(
-            mock_email_class.call_args[0],
-            ("[Refund] User-Requested Refund", mock.ANY, self.student.email, ['payment@example.com']),
-        )
-        text_body = mock_email_class.call_args[0][1]
-        # check for a URL for each refund
-        for exp in [r'{0}/dashboard/refunds/{1}/'.format(TEST_PUBLIC_URL_ROOT, refund_id)
-                    for refund_id in refund_ids]:
-            self.assertRegexpMatches(text_body, exp)
+    def _mock_zendesk_api(self, status=201):
+        """ Mock Zendesk's ticket creation API. """
+        httpretty.register_uri(httpretty.POST, urljoin(ZENDESK_URL, '/api/v2/tickets.json'), status=status,
+                               body='{}', content_type=JSON)
 
-        # check HTML content
-        self.assertEqual(mock_message.attach_alternative.call_args[0], (mock.ANY, "text/html"))
-        html_body = mock_message.attach_alternative.call_args[0][0]
-        # check for a link to each refund
-        for exp in [r'a href="{0}/dashboard/refunds/{1}/"'.format(TEST_PUBLIC_URL_ROOT, refund_id)
-                    for refund_id in refund_ids]:
-            self.assertRegexpMatches(html_body, exp)
+    @override_settings(ZENDESK_URL=ZENDESK_URL, ZENDESK_USER=None, ZENDESK_API_KEY=None)
+    def test_create_zendesk_ticket_no_settings(self):
+        """ Verify the Zendesk API is not called if the settings are not all set. """
+        with mock.patch('requests.post') as mock_post:
+            send_refund_notification(self.course_enrollment, [1])
+            self.assertFalse(mock_post.called)
 
-        # make sure we actually SEND the message too.
-        self.assertTrue(mock_message.send.called)
+    @httpretty.activate
+    @override_settings(ZENDESK_URL=ZENDESK_URL, ZENDESK_USER=ZENDESK_USER, ZENDESK_API_KEY=ZENDESK_API_KEY)
+    def test_create_zendesk_ticket(self):
+        """ Verify the Zendesk API is called. """
+        self._mock_zendesk_api()
+
+        name = u'Test user'
+        email = u'user@example.com'
+        subject = u'Test Ticket'
+        body = u'I want a refund!'
+        tags = [u'refund']
+        create_zendesk_ticket(name, email, subject, body, tags)
+        last_request = httpretty.last_request()
+
+        # Verify the headers
+        expected = {
+            'content-type': JSON,
+            'Authorization': 'Basic ' + base64.b64encode(
+                '{user}/token:{pwd}'.format(user=ZENDESK_USER, pwd=ZENDESK_API_KEY))
+        }
+        self.assertDictContainsSubset(expected, last_request.headers)
+
+        # Verify the content
+        expected = {
+            u'ticket': {
+                u'requester': {
+                    u'name': name,
+                    u'email': email
+                },
+                u'subject': subject,
+                u'comment': {u'body': body},
+                u'tags': tags + [u'LMS']
+            }
+        }
+        self.assertDictEqual(json.loads(last_request.body), expected)
